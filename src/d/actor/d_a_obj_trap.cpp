@@ -5,7 +5,22 @@
 
 #include "d/dolzel_rel.h" // IWYU pragma: keep
 #include "d/actor/d_a_obj_trap.h"
-#include "d/d_cc_d.h"
+#include "d/actor/d_a_obj_movebox.h"
+#include "d/d_a_obj.h"
+#include "d/d_bg_s_lin_chk.h"
+#include "d/d_bg_w.h"
+#include "d/d_com_inf_game.h"
+#include "d/d_kankyo.h"
+#include "d/d_path.h"
+#include "f_op/f_op_actor_mng.h"
+#include "m_Do/m_Do_audio.h"
+#include "m_Do/m_Do_mtx.h"
+#include "SSystem/SComponent/c_lib.h"
+#include "res/Object/Trap.h"
+
+const f32 daObjTrap_c::M_speed_table[] = {50.0f, 80.0f, 100.0f};
+const s16 daObjTrap_c::M_wait_f_table[] = {30, 10, 0};
+const char daObjTrap_c::M_arcname[] = "Trap";
 
 static dCcD_SrcCyl l_daObjTrap_cyl_data = {
     // dCcD_SrcGObjInf
@@ -37,105 +52,401 @@ static dCcD_SrcCyl l_daObjTrap_cyl_data = {
     }},
 };
 
-
 /* 000000EC-0000010C       .text solidHeapCB__11daObjTrap_cFP10fopAc_ac_c */
-void daObjTrap_c::solidHeapCB(fopAc_ac_c*) {
-    /* Nonmatching */
+BOOL daObjTrap_c::solidHeapCB(fopAc_ac_c* i_this) {
+    return ((daObjTrap_c*)i_this)->create_heap();
 }
 
 /* 0000010C-000002A4       .text create_heap__11daObjTrap_cFv */
-void daObjTrap_c::create_heap() {
-    /* Nonmatching */
+BOOL daObjTrap_c::create_heap() {
+    BOOL ret = FALSE;
+
+    J3DModelData* mdl_data = static_cast<J3DModelData*>(dComIfG_getObjectRes(M_arcname, dRes_INDEX_TRAP_BDL_HTORA1_e));
+    JUT_ASSERT(355, mdl_data != 0);
+
+    if (mdl_data != NULL) {
+        mpModel = mDoExt_J3DModel__create(mdl_data, 0x80000, 0x11000222);
+        if (mpModel != NULL) {
+            J3DAnmTextureSRTKey* btk_data = static_cast<J3DAnmTextureSRTKey*>(dComIfG_getObjectRes(M_arcname, dRes_INDEX_TRAP_BTK_HTORA1_e));
+            JUT_ASSERT(364, btk_data != 0);
+            if (btk_data != NULL && mBtk.init(mdl_data, btk_data, TRUE, J3DFrameCtrl::EMode_NONE, 1.0f, 0, -1, false, FALSE)) {
+                mpBgW = dBgW_NewSet((cBgD_t*)dComIfG_getObjectRes(M_arcname, dRes_INDEX_TRAP_DZB_HTORA1_e), cBgW::MOVE_BG_e, &mpModel->getBaseTRMtx());
+                if (mpBgW != NULL) {
+                    ret = TRUE;
+                }
+            }
+        }
+    }
+
+    return ret;
 }
 
 /* 000002A4-00000510       .text _create__11daObjTrap_cFv */
 cPhs_State daObjTrap_c::_create() {
-    /* Nonmatching */
+    fopAcM_ct(this, daObjTrap_c);
+
+    cPhs_State ret = dComIfG_resLoad(&mPhs, M_arcname);
+    if (ret == cPhs_COMPLEATE_e) {
+        ret = cPhs_ERROR_e;
+        if (fopAcM_entrySolidHeap(this, solidHeapCB, 0)) {
+            mPathId = fopAcM_GetParam(this);
+            if (mPathId != 0xFF) {
+                mpPath = dPath_GetRoomPath(mPathId, fopAcM_GetRoomNo(this));
+                if (mpPath != NULL && mpPath->m_points != NULL) {
+                    mSpeedType = (fopAcM_GetParam(this) >> 8) & 0xF;
+                    if (mSpeedType == 0xF) {
+                        mSpeedType = 0;
+                    }
+                    mSpeed = M_speed_table[mSpeedType];
+                    mWaitFrame = M_wait_f_table[mSpeedType];
+
+                    current.pos.set(mpPath->m_points[0].m_position.x, current.pos.y, mpPath->m_points[0].m_position.z);
+                    set_move_info();
+
+                    cXyz move = mTargetPos - mStartPos;
+                    mMoveDist = move.absXZ();
+                    mPos = current.pos;
+
+                    init_mtx();
+                    mStts.Init(0, 0xFF, this);
+                    mCyl.SetStts(&mStts);
+                    mCyl.Set(l_daObjTrap_cyl_data);
+                    set_co_pos();
+                    dComIfG_Bgsp()->Regist(mpBgW, this);
+                    get_ground();
+                    ret = cPhs_COMPLEATE_e;
+                } else {
+                    mPathId = 0xFF;
+                    ret = cPhs_ERROR_e;
+                }
+            }
+        }
+    }
+
+    return ret;
 }
 
 /* 00000DF0-00000E84       .text _delete__11daObjTrap_cFv */
 bool daObjTrap_c::_delete() {
-    /* Nonmatching */
+    if (heap != NULL && mpBgW != NULL && mpBgW->ChkUsed()) {
+        dComIfG_Bgsp()->Release(mpBgW);
+        mpBgW = NULL;
+    }
+    dComIfG_resDelete(&mPhs, M_arcname);
+    return true;
 }
 
 /* 00000E84-00000F20       .text init_mtx__11daObjTrap_cFv */
 void daObjTrap_c::init_mtx() {
-    /* Nonmatching */
+    mpModel->setBaseScale(scale);
+    mDoMtx_stack_c::transS(current.pos);
+    mDoMtx_stack_c::ZXYrotM(shape_angle);
+    mpModel->setBaseTRMtx(mDoMtx_stack_c::get());
+    mpModel->calc();
 }
 
 /* 00000F20-00000F70       .text set_co_pos__11daObjTrap_cFv */
 void daObjTrap_c::set_co_pos() {
-    /* Nonmatching */
+    cXyz pos = current.pos;
+    pos.y -= 40.0f;
+    mCyl.SetC(pos);
 }
 
 /* 00000F70-00000FF4       .text get_ground__11daObjTrap_cFv */
 void daObjTrap_c::get_ground() {
-    /* Nonmatching */
+    cXyz pos(current.pos.x, current.pos.y + 50.0f, current.pos.z);
+    mGndChk.SetPos(&pos);
+    mGndChk.SetActorPid(fopAcM_GetID(this));
+    mGroundY = dComIfG_Bgsp()->GroundCross(&mGndChk);
 }
 
 /* 00000FF4-0000112C       .text circle_search__11daObjTrap_cFv */
-void daObjTrap_c::circle_search() {
-    /* Nonmatching */
+BOOL daObjTrap_c::circle_search() {
+    fopAc_ac_c* player = dComIfGp_getPlayer(0);
+    cXyz diff = player->current.pos - current.pos;
+    f32 dist = diff.absXZ();
+    BOOL ret = FALSE;
+    if (dist <= 400.0f && mbMoveDirValid == true) {
+        if (mMoveDir.inprodXZ(diff) >= 0.0f) {
+            ret = TRUE;
+        }
+    }
+    return ret;
 }
 
 /* 0000112C-0000122C       .text set_move_info__11daObjTrap_cFv */
 void daObjTrap_c::set_move_info() {
-    /* Nonmatching */
+    mStartPos.set(mpPath->m_points[mPntNo].m_position.x, current.pos.y, mpPath->m_points[mPntNo].m_position.z);
+    mTargetPos.set(mpPath->m_points[(mPntNo + 1) & 1].m_position.x, current.pos.y, mpPath->m_points[(mPntNo + 1) & 1].m_position.z);
+    mMoveDir = mTargetPos - mStartPos;
+    mbMoveDirValid = mMoveDir.normalizeRS();
+    mMoveSpeed = cXyz::Zero;
+    mMaxMoveSpeed = mMoveDir * 100.0f;
 }
 
 /* 0000122C-000013E4       .text check_arrival__11daObjTrap_cFv */
-void daObjTrap_c::check_arrival() {
-    /* Nonmatching */
+BOOL daObjTrap_c::check_arrival() {
+    cXyz moved = mPos - mStartPos;
+    cXyz move = mTargetPos - mStartPos;
+    return moved.absXZ() >= move.absXZ();
 }
 
 /* 000013E4-000018E4       .text check_wall__11daObjTrap_cFv */
-void daObjTrap_c::check_wall() {
-    /* Nonmatching */
+cXyz daObjTrap_c::check_wall() {
+    static dBgS_ObjLinChk wall_work;
+    static const s16 angleY[] = {0x0000, 0x4000, -0x4000};
+    static const f32 transA[] = {0.0f, 145.0f, 145.0f};
+
+    cXyz front = mMoveDir * 150.0f;
+    cXyz start;
+    cXyz end;
+    cXyz cross;
+    cXyz offset;
+    cXyz up = cXyz::BaseY * 75.0f;
+    cXyz ret = cXyz::Zero;
+
+    for (int i = 0; i < 3; i++) {
+        mDoMtx_stack_c::YrotS(angleY[i]);
+        mDoMtx_stack_c::multVec(&mMoveDir, &offset);
+        offset *= transA[i];
+        offset += up;
+
+        start = current.pos + offset;
+        end = start + mMoveSpeed;
+        end += front;
+
+        wall_work.Set(&start, &end, this);
+        wall_work.SetActorPid(fopAcM_GetID(this));
+        if (dComIfG_Bgsp()->LineCross(&wall_work)) {
+            cross = wall_work.GetCross();
+            cross -= start;
+            if (ret == cXyz::Zero || ret.absXZ() > cross.absXZ()) {
+                ret = cross + current.pos - front;
+            }
+        }
+    }
+
+    return ret;
 }
 
 /* 00001C88-00001D7C       .text check_block_target_pos__11daObjTrap_cFP4cXyz */
-void daObjTrap_c::check_block_target_pos(cXyz*) {
-    /* Nonmatching */
+BOOL daObjTrap_c::check_block_target_pos(cXyz* i_pos) {
+    cXyz diff = *i_pos - current.pos;
+    f32 dist = mMoveDir.inprodXZ(diff);
+    BOOL ret = FALSE;
+    if (dist >= 0.0f && dist < mMoveDist + 150.0f) {
+        cXyz side;
+        mDoMtx_stack_c::YrotS(0x4000);
+        mDoMtx_stack_c::multVec(&mMoveDir, &side);
+        if (std::fabsf(side.inprodXZ(diff)) < 225.0f) {
+            ret = TRUE;
+        }
+    }
+    return ret;
 }
 
 /* 00001D7C-000023D4       .text check_block__11daObjTrap_cF4cXyz */
-void daObjTrap_c::check_block(cXyz) {
-    /* Nonmatching */
+cXyz daObjTrap_c::check_block(cXyz i_pos) {
+    static dBgS_ObjLinChk wall_work;
+    static s16 angleY[] = {0x4000, -0x4000};
+
+    cXyz front = mMoveDir * 150.0f;
+    cXyz start;
+    cXyz end;
+    cXyz cross;
+    cXyz offset;
+    cXyz ret = i_pos;
+    cXyz box_pos;
+    cXyz up = cXyz::BaseY * 75.0f;
+
+    for (int i = 0; i < 2; i++) {
+        mDoMtx_stack_c::YrotS(angleY[i]);
+        mDoMtx_stack_c::multVec(&mMoveDir, &offset);
+        offset *= 153.0f;
+        offset += up;
+
+        start = current.pos + offset;
+        end = start + mMoveSpeed;
+        end += front;
+
+        wall_work.Set(&start, &end, this);
+        wall_work.SetActorPid(fopAcM_GetID(this));
+        if (dComIfG_Bgsp()->LineCross(&wall_work)) {
+            fopAc_ac_c* actor = dComIfG_Bgsp()->GetActorPointer(wall_work);
+            if (actor != NULL && fopAcM_IsActor(actor) && fopAcM_GetName(actor) == fpcNm_Obj_Movebox_e) {
+                if (((daObjMovebox::Act_c*)actor)->chk_walk(&box_pos) && check_block_target_pos(&box_pos)) {
+                    cross = wall_work.GetCross();
+                    cross -= start;
+                    if (ret == cXyz::Zero || ret.absXZ() > cross.absXZ()) {
+                        ret = cross + current.pos - front;
+                    }
+                }
+            }
+        }
+    }
+
+    return ret;
 }
 
 /* 000023D4-0000250C       .text set_vib_mode__11daObjTrap_cFv */
 void daObjTrap_c::set_vib_mode() {
-    /* Nonmatching */
+    mVibBaseAngle = shape_angle.x;
+    mVibTimer = 6;
+    mBoundPower = 35.0f;
+    mBoundTimer = 16;
+    mBoundOffset = cXyz::Zero;
+    mMode = MODE_STOP;
+
+    cXyz pos = mMoveDir * 150.0f;
+    pos += current.pos;
+    cXyz dir = mMoveDir * -1.0f;
+    pos.y += 50.0f;
+    daObj::HitEff_hibana(&pos, &dir);
+
+    if (mVibTimer != 0) {
+        vibrate();
+        mVibTimer--;
+    }
+    if (mBoundTimer != 0) {
+        bound();
+        mBoundTimer--;
+    }
 }
 
 /* 0000250C-0000255C       .text vibrate__11daObjTrap_cFv */
 void daObjTrap_c::vibrate() {
-    /* Nonmatching */
+    s16 angle = mVibTimer * 0x5555;
+    shape_angle.x = 288.0f * cM_ssin(angle);
 }
 
 /* 0000255C-00002678       .text bound__11daObjTrap_cFv */
 void daObjTrap_c::bound() {
-    /* Nonmatching */
+    cXyz offset = mMoveDir * -1.0f;
+    mPos -= mBoundOffset;
+    s16 angle = mBoundTimer << 14;
+    offset *= std::fabsf((s16)(mBoundPower * cM_ssin(angle)));
+    mPos += offset;
+    mBoundOffset = offset;
+    cLib_addCalc(&mBoundPower, 0.0f, 0.17f, 35.0f, 1.0f);
 }
 
 /* 00002678-0000270C       .text set_shine__11daObjTrap_cFv */
 void daObjTrap_c::set_shine() {
-    /* Nonmatching */
+    start_shine();
+    if (cXyz::BaseX.inprod(mMoveDir) >= 0.0f) {
+        mBtk.setFrame(35.0f);
+        mBtk.setPlaySpeed(1.0f);
+    } else {
+        mBtk.setFrame(46.0f);
+        mBtk.setPlaySpeed(-1.0f);
+    }
 }
 
 /* 0000270C-00002758       .text shine_move__11daObjTrap_cFv */
 void daObjTrap_c::shine_move() {
-    /* Nonmatching */
+    if (check_shine()) {
+        if (mBtk.play()) {
+            stop_shine();
+        }
+    }
 }
 
 /* 00002758-00002CB0       .text _execute__11daObjTrap_cFv */
 bool daObjTrap_c::_execute() {
-    /* Nonmatching */
+    cXyz wall_pos;
+
+    mPos = current.pos;
+
+    switch (mMode) {
+    case MODE_MOVE: {
+        int arrived = cLib_chasePosXZ(&mPos, mTargetPos, mSpeed);
+        mMoveSpeed = mPos - current.pos;
+        wall_pos = check_wall();
+        wall_pos = check_block(wall_pos);
+        if (wall_pos != cXyz::Zero) {
+            mPos = wall_pos;
+            set_vib_mode();
+            set_shine();
+            mDoAud_seStart(JA_SE_OBJ_WDUN_TRAP_STOP, &current.pos, 0, dComIfGp_getReverb(fopAcM_GetRoomNo(this)));
+        } else if (arrived == TRUE) {
+            set_vib_mode();
+            set_shine();
+            mDoAud_seStart(JA_SE_OBJ_WDUN_TRAP_STOP, &current.pos, 0, dComIfGp_getReverb(fopAcM_GetRoomNo(this)));
+        } else if (circle_search() == TRUE) {
+            mMode = MODE_RUSH;
+        } else {
+            mDoAud_seStart(JA_SE_OBJ_WDUN_TRAP_MOVE, &current.pos, 0, dComIfGp_getReverb(fopAcM_GetRoomNo(this)));
+        }
+        break;
+    }
+    case MODE_RUSH:
+        cLib_addCalcPosXZ(&mMoveSpeed, mMaxMoveSpeed, 0.06f, 100.0f, 1.0f);
+        mPos += mMoveSpeed;
+        wall_pos = check_wall();
+        wall_pos = check_block(wall_pos);
+        if (wall_pos != cXyz::Zero) {
+            mPos = wall_pos;
+            set_vib_mode();
+            set_shine();
+            mDoAud_seStart(JA_SE_OBJ_WDUN_TRAP_STOP, &current.pos, 0, dComIfGp_getReverb(fopAcM_GetRoomNo(this)));
+        } else if (check_arrival() == TRUE) {
+            mPos = mTargetPos;
+            set_vib_mode();
+            set_shine();
+            mDoAud_seStart(JA_SE_OBJ_WDUN_TRAP_STOP, &current.pos, 0, dComIfGp_getReverb(fopAcM_GetRoomNo(this)));
+        } else {
+            mDoAud_seStart(JA_SE_OBJ_WDUN_TRAP_MOVE, &current.pos, 0, dComIfGp_getReverb(fopAcM_GetRoomNo(this)));
+        }
+        break;
+    case MODE_STOP:
+        if (mVibTimer != 0) {
+            vibrate();
+            mVibTimer--;
+        }
+        if (mBoundTimer != 0) {
+            bound();
+            mBoundTimer--;
+        }
+        if (mVibTimer == 0) {
+            shape_angle.x = mVibBaseAngle;
+            if (mBoundTimer == 0) {
+                mWaitTimer = mWaitFrame;
+                mMode = MODE_WAIT;
+            }
+        }
+        break;
+    case MODE_WAIT:
+        if (mWaitTimer > 0) {
+            mWaitTimer--;
+        }
+        if (mWaitTimer == 0) {
+            mPntNo = (mPntNo + 1) & 1;
+            set_move_info();
+            mMode = MODE_MOVE;
+        }
+        break;
+    }
+
+    current.pos = mPos;
+    shine_move();
+    get_ground();
+    init_mtx();
+    set_co_pos();
+    dComIfG_Ccsp()->Set(&mCyl);
+    if (heap != NULL && mpBgW != NULL && mpBgW->ChkUsed()) {
+        mpBgW->Move();
+    }
+    return true;
 }
 
 /* 00002CB0-00002D54       .text _draw__11daObjTrap_cFv */
 bool daObjTrap_c::_draw() {
-    /* Nonmatching */
+    g_env_light.settingTevStruct(TEV_TYPE_BG0, &current.pos, &tevStr);
+    g_env_light.setLightTevColorType(mpModel, &tevStr);
+    mBtk.entry(mpModel->getModelData());
+    mDoExt_modelUpdateDL(mpModel);
+    dComIfGd_setSimpleShadow2(&current.pos, mGroundY, 150.0f, mGndChk);
+    return true;
 }
 
 namespace {
