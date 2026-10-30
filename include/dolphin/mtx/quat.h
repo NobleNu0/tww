@@ -15,6 +15,8 @@ void C_QUATMultiply(const Quaternion* a, const Quaternion* b, Quaternion* ab);
 void PSQUATMultiply(const Quaternion* a, const Quaternion* b, Quaternion* ab);
 void C_QUATNormalize(const Quaternion* src, Quaternion* unit);
 void PSQUATNormalize(const Quaternion* src, Quaternion* unit);
+void C_QUATInverse(const Quaternion* src, Quaternion* inv);
+void PSQUATInverse(const Quaternion* src, Quaternion* inv);
 void C_QUATRotAxisRad(Quaternion* q, const Vec* axis, f32 rad);
 void C_QUATSlerp(const Quaternion* p, const Quaternion* q, Quaternion* r, f32 t);
 
@@ -22,9 +24,11 @@ void C_QUATSlerp(const Quaternion* p, const Quaternion* q, Quaternion* r, f32 t)
 #if defined(DEBUG) || !defined(__MWERKS__)
 #define QUATMultiply C_QUATMultiply
 #define QUATNormalize C_QUATNormalize
+#define QUATInverse C_QUATInverse
 #else
 #define QUATMultiply PSQUATMultiply
 #define QUATNormalize PSQUATNormalize
+#define QUATInverse PSQUATInverse
 #endif
 
 #define QUATRotAxisRad C_QUATRotAxisRad
