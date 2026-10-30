@@ -1613,7 +1613,7 @@ config.libs = [
     ActorRel(NonMatching, "d_a_obj_magmarock"),
     ActorRel(Matching, "d_a_obj_majyuu_door"),
     ActorRel(MatchingFor("GZLJ01", "GZLE01", "GZLP01"), "d_a_obj_stair"),
-    ActorRel(NonMatching, "d_a_obj_swflat"),
+    ActorRel(MatchingFor("GZLJ01", "GZLE01", "GZLP01"), "d_a_obj_swflat"),
     ActorRel(Matching,    "d_a_obj_swhammer"),
     ActorRel(MatchingFor("GZLJ01", "GZLE01", "GZLP01"),    "d_a_obj_swheavy"),
     ActorRel(Matching,    "d_a_obj_swlight"),
